@@ -20,6 +20,7 @@ import HiwonderSDK.mecanum as mecanum
 from HiwonderSDK.PID import PID
 import pandas as pd
 
+
 # initialization
 chassis = mecanum.MecanumChassis()
 AK = ArmIK()
@@ -39,7 +40,8 @@ img_centerx = 320
 # Variable for distance obstacle avoidance
 distance_data = []
 stopMotor = False
-Threshold = 25  # Set threshold for obstacle distance
+Threshold = 20  # Set threshold for obstacle distance
+
 
 # line tracking
 roi = [ # [ROI, weight]
@@ -55,19 +57,22 @@ roi_h3 = roi[2][0] - roi[1][0]
 roi_h_list = [roi_h1, roi_h2, roi_h3]
 size = (640, 480)
 
+
 # Line patrol
 if sys.version_info.major == 2:
     print('Please run this program with python3!')
     sys.exit(0)
 
 def servo_init():
-    # Set the PWM of the Servos appropriately to position arm for line-tracking
-    Board.setPWMServoPulse(1, 2000, 500)  # Base servo — center/straight ahead
-    Board.setPWMServoPulse(2, 1000, 500)  # Shoulder — tilt forward and down
-    Board.setPWMServoPulse(3, 300, 500)   # Elbow — fold arm down
-    Board.setPWMServoPulse(4, 2000, 500)  # Wrist — neutral position
-    Board.setPWMServoPulse(5, 2000, 500)  # End effector — neutral
-    time.sleep(0.5)                       # Wait for servos to reach position
+
+    # TODO 1. set the PWM of the Servos appropriately to position arm for line-tracking, use Board.setPWMServoPulse() 
+    Board.setPWMServoPulse(1, 2000, 500)  
+    Board.setPWMServoPulse(2, 1000, 500) 
+    Board.setPWMServoPulse(3, 300, 500)  
+    Board.setPWMServoPulse(4, 2000, 500)  
+    Board.setPWMServoPulse(5, 2000, 500) 
+    time.sleep(0.5)                      
+
 
 # Set the detection color
 def setTargetColor(target_color):
@@ -89,7 +94,6 @@ def initMove():
     MotorStop()
     
 line_centerx = -1
-
 # Variable reset
 def reset():
     global line_centerx
@@ -105,7 +109,6 @@ def init():
     initMove()
 
 __isRunning = False
-
 # app starts playing method call
 def start():
     reset()
@@ -156,109 +159,107 @@ def Stop(signum, frame):
     __isRunning = False
     print('Closing...')
     MotorStop()  # Turn off all motors
+
     
 # Find the contour with the largest area
+# The parameter is a list of contours to be compared
 def getAreaMaxContour(contours):
     contour_area_temp = 0
     contour_area_max = 0
     area_max_contour = None
 
-    for c in contours:  
-        contour_area_temp = math.fabs(cv2.contourArea(c))  
+    for c in contours:  # Iterate over all contours
+        contour_area_temp = math.fabs(cv2.contourArea(c))  # Calculate the contour area
         if contour_area_temp > contour_area_max:
             contour_area_max = contour_area_temp
-            if contour_area_temp >= 5:  
+            if contour_area_temp >= 5:  # Only when the area is greater than 300, the contour of the largest area is valid to filter out interference
                 area_max_contour = c
 
-    return area_max_contour, contour_area_max  
+    return area_max_contour, contour_area_max  # Return the largest contour
+
+
 
 def move():
+    
     global line_centerx
     global obstacle
 
+    i = 0
     while True:
+
         if __isRunning:
             if line_centerx != -1 and not obstacle:
-                num = (img_centerx - line_centerx)
-                if abs(num) <= 5:  
+                
+                num = (line_centerx - img_centerx)
+                if abs(num) <= 5:  # The deviation is small and no processing is performed
                     pitch_pid.SetPoint = num
                 else:
                     pitch_pid.SetPoint = 0
-                
                 pitch_pid.update(num) 
-                tmp = pitch_pid.output    
+                tmp = pitch_pid.output    # Get PID output value
                 tmp = 100 if tmp > 100 else tmp   
                 tmp = -100 if tmp < -100 else tmp
-                base_speed = Misc.map(tmp, -100, 100, -30, 30)
-                #SPEED
-                Board.setMotor(1, int(25 + base_speed))  
-                Board.setMotor(2, int(25 + base_speed))  
-                Board.setMotor(3, int(-25 + base_speed))  
-                Board.setMotor(4, int(-25 + base_speed)) 
+                base_speed = Misc.map(tmp, -100, 100, -40, 40)  # Speed ​​mapping
+
+                # TODO 2. Given the base_speed from pid controller, Set motor speeds for motor 1, 2, 3 and 4, use  Board.setMotor()
+                # Base forward speed
+                forward_speed = 40 
+
+                Board.setMotor(1, int(forward_speed -  base_speed))  
+                Board.setMotor(2, int(forward_speed + base_speed))  
+                Board.setMotor(3, int(-forward_speed - base_speed)) 
+                Board.setMotor(4, int(-forward_speed + base_speed)) 
                 
             else:
                 MotorStop()
 
                 if obstacle:
+
                     time.sleep(0.01)
-                    print("Obstacle Detected! Starting evasion sequence.\n")
-                    
-                    # Full stop to kill forward momentum
-                    MotorStop()
-                    time.sleep(0.3) 
-                    #OBSTACLE
-                    # 1. Move RIGHT (Using your tested RIGHT_WHEELS values)
-                    print("Moving RIGHT...")
-                    Board.setMotor(1, 40)   # FL
-                    Board.setMotor(2, -50)  # FR
-                    Board.setMotor(3, -50)  # RL
-                    Board.setMotor(4, 40)   # RR
-                    time.sleep(0.8)         # TUNE THIS for ~8cm
-                    
-                    # CRITICAL FIX: Hard stop to kill sideways momentum so rollers settle
-                    MotorStop()
-                    time.sleep(0.3)         
+                    # Pick
+                    print("Obstacle Avoidance Start\n")
 
-                    # 2. Move FORWARD (Using your tested FORWARD_WHEELS values)
-                    print("Moving FORWARD...")
-                    Board.setMotor(1, 60)
-                    Board.setMotor(2, 60)
-                    Board.setMotor(3, - 60)
-                    Board.setMotor(4, - 60)
-                    time.sleep(1)         # TUNE THIS for ~5cm
-                    
-                    # CRITICAL FIX: Hard stop to kill forward momentum
-                    MotorStop()
-                    time.sleep(0.3)         
+                    print("The obstacle distance is :\n")
 
-                    # 3. Move LEFT (Using your tested LEFT_WHEELS values)
-                    print("Moving LEFT...")
-                    Board.setMotor(1, -40)
-                    Board.setMotor(2, 40)
-                    Board.setMotor(3, 40)
-                    Board.setMotor(4, -40)
-                    time.sleep(1)         # TUNE THIS for ~8cm
-                    
-                    print("Evasion complete. Resuming tracking.\n")
-                    MotorStop()
-                    
-                    # Reset the obstacle flag so it looks for the line again
+
+                    # TODO 3. Obstacle avoidance routine
+
+                    # move left
+                    time.sleep(1)
+                    Board.setMotor(1, -50)  
+                    Board.setMotor(2, 50) 
+                    Board.setMotor(3, 50)  
+                    Board.setMotor(4, 50)  
+                    time.sleep(1)
+                    # move forward
+                    Board.setMotor(1, 50)  
+                    Board.setMotor(2, 50) 
+                    Board.setMotor(3, -50)  
+                    Board.setMotor(4, -50)  
+                    time.sleep(1.5)
+                    # move right
+                    Board.setMotor(1, 50)  
+                    Board.setMotor(2, -50) 
+                    Board.setMotor(3, -50)  
+                    Board.setMotor(4, 50)  
+                    time.sleep(2)
+                    print("complete, now turning off motors\n")
+                    chassis.set_velocity(0,0,0)  # Turn off all motors
+
                     obstacle = False
-                    time.sleep(0.5)
-            
-            # CRITICAL FIX: Add a small delay to prevent I2C bus flooding
-            time.sleep(0.01)
+                    print("Obstacle Avoidance End\n")
+                    time.sleep(1.5)
+
         else:
             time.sleep(0.01)
  
-# Run child thread for movement
+# Run child thread
 th = threading.Thread(target=move)
 th.setDaemon(True)
 th.start()
 
-def line_tracking(img, __target_color):
+def line_tracking (img, __target_color):
     global line_centerx
-    global lab_data
 
     # Camera line tracking
     img_copy = img.copy()
@@ -266,71 +267,72 @@ def line_tracking(img, __target_color):
     
     if not __isRunning or __target_color == ():
         return img
-     
+      
     frame_resize = cv2.resize(img_copy, size, interpolation=cv2.INTER_NEAREST)
-    frame_gb = cv2.GaussianBlur(frame_resize, (3, 3), 3)         
+    frame_gb = cv2.GaussianBlur(frame_resize, (3, 3), 3)        
     centroid_x_sum = 0
     weight_sum = 0
     center_ = []
     n = 0
 
-    # Split the image into three parts: upper, middle and lower.
+    # Split the image into three parts: upper, middle and lower. This will make the processing faster and more accurate.
     for r in roi:
         roi_h = roi_h_list[n]
         n += 1       
         blobs = frame_gb[r[0]:r[1], r[2]:r[3]]
         frame_lab = cv2.cvtColor(blobs, cv2.COLOR_BGR2LAB)  # Convert the image to LAB space
-        dilated = None  
+        area_max = 0
+        areaMaxContour = 0
+        for i in lab_data:
+            if i in __target_color:
+                detect_color = i
 
-        # Look for our specified target colors in the lab data map
-        for color_name in __target_color:
-            if lab_data and color_name in lab_data:
-                # apply mask using lab space color parameters, to only detect specified color
-                frame_mask = cv2.inRange(
-                    frame_lab,
-                    (lab_data[color_name]['min'][0], lab_data[color_name]['min'][1], lab_data[color_name]['min'][2]),
-                    (lab_data[color_name]['max'][0], lab_data[color_name]['max'][1], lab_data[color_name]['max'][2])
-                )
-                
-                # Perform bitwise operations on the original image to smooth out noise
-                eroded = cv2.erode(frame_mask, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))) # corrosion
-                dilated = cv2.dilate(eroded, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-                break # Process the first matched color
+                # TODO create frame mask using cv2.inRange () function to perform bitwise operations on the original image
+                # 5. apply mask using lab space color parameters, to only detect specified color
+                frame_mask = cv2.inRange(frame_lab,
+                    (lab_data[i]['min'][0], 
+                    lab_data [i]['min'][1], 
+                    lab_data[i]['min'][2]), 
+                    (lab_data[ i][ 'max' ][0], 
+                    lab_data [i][ 'max'][1], 
+                    lab_data [i]['max'][2])) #Perform bitwise operations on the original image
 
-        # Skip contour search for this ROI band if no target color was matched
-        if dilated is None:
-            continue
 
-        cnts = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)[-2]  
-        cnt_large, area = getAreaMaxContour(cnts)  
-        
-        if cnt_large is not None:  
-            rect = cv2.minAreaRect(cnt_large)         
-            box  = np.int0(cv2.boxPoints(rect))       
+                eroded = cv2.erode(frame_mask, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))  #corrosion
+                dilated = cv2.dilate(eroded, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))) #Expansion
+
+        cnts = cv2.findContours(dilated , cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)[-2]# Find all contours
+        cnt_large, area = getAreaMaxContour(cnts)# Find the contour with the largest area
+        if cnt_large is not None:#If the contour is not empty
+            rect = cv2.minAreaRect(cnt_large)#Minimum enclosing rectangle
+            box = np.int0(cv2.boxPoints(rect))#The four vertices of the minimum enclosing rectangle
             for i in range(4):
                 box[i, 1] = box[i, 1] + (n - 1)*roi_h + roi[0][0]
                 box[i, 1] = int(Misc.map(box[i, 1], 0, size[1], 0, img_h))
             for i in range(4):                
                 box[i, 0] = int(Misc.map(box[i, 0], 0, size[0], 0, img_w))
 
-            cv2.drawContours(img, [box], -1, (0, 0, 255, 255), 2)  
+            cv2.drawContours(img, [box], -1, (0,0,255,255), 2)#Draw a rectangle consisting of four points
         
+            #Get the diagonal points of the rectangle
             pt1_x, pt1_y = box[0, 0], box[0, 1]
             pt3_x, pt3_y = box[2, 0], box[2, 1]            
-            center_x, center_y = (pt1_x + pt3_x) / 2, (pt1_y + pt3_y) / 2  
-            cv2.circle(img, (int(center_x), int(center_y)), 5, (0, 0, 255), -1)
-            center_.append([center_x, center_y])
-            
+            center_x, center_y = (pt1_x + pt3_x) / 2, (pt1_y + pt3_y) / 2#Center point       
+            cv2.circle(img, (int(center_x), int(center_y)), 5, (0,0,255), -1)# Draw the center point         
+            center_.append([center_x, center_y])                        
+            #Sum the top, middle and bottom center points according to different weights
             centroid_x_sum += center_x * r[4]
             weight_sum += r[4]
-
     if weight_sum != 0:
+        #Find the final center point
         line_centerx = int(centroid_x_sum / weight_sum)
-        cv2.circle(img, (line_centerx, int(center_y)), 10, (0, 255, 255), -1)
+        cv2.circle(img, (line_centerx, int(center_y)), 10, (0,255,255), -1)# Draw the center point
     else:
         line_centerx = -1
-        
     return img
+
+
+
 
 def run(img, __target_color):
     global __isRunning
@@ -339,68 +341,50 @@ def run(img, __target_color):
     global obstacle
     global distance
 
+
+    # Ultrasonic sensor measurements
     dist = HWSONAR.getDistance() / 10.0
 
     if __isRunning:
+        
         distance_data.append(dist)
+
         if len(distance_data) > 5:
             distance_data.pop(0)
 
         distance = np.mean(distance_data)
 
-        # CRITICAL FIX: Add 'and not obstacle' so it doesn't spam the stop command
-        # while the robot is trying to execute the evasion maneuver.
-        if 0 < distance < Threshold and not obstacle:   
+        # TODO 4. Using measured distance value, write code to stop motors and change obstacle flag to true when obstacle is within certain threshold
+        if 0 < distance < Threshold and not obstacle:
             chassis.set_velocity(0, 0, 0)
             obstacle = True
-        
         time.sleep(0.03)
-        img = line_tracking(img, __target_color)
+
+        img = line_tracking(img,__target_color)
 
         return img
 
+
+    
+
 if __name__ == '__main__':
     
-    # 1. Initialize robot hardware
     init()
     start()
     
-    # 2. Setup safe exit handler
     signal.signal(signal.SIGINT, Stop)
-    
-    # 3. Initialize camera and target color
-    cap = cv2.VideoCapture(0) 
-    __target_color = ('green',)  
-    
-    # 4. Main Unified Loop
+    cap = cv2.VideoCapture(-1)
+    __target_color = ('green',)
     while __isRunning:
         ret, img = cap.read()
         if ret:
             frame = img.copy()
-            # 'Frame' contains the image with the tracking circles drawn on it
             Frame = run(frame, __target_color)  
-            
-            # Diagnostic Console Output
-            print(f"Vision Center X: {line_centerx} | Target: {__target_color}")
-            
-            # --- LIVE CAMERA FEED START ---
-            # Resize the frame so it doesn't take up your whole screen
-            display_frame = cv2.resize(Frame, (480, 360))
-            
-            # Show the window
-            cv2.imshow('MasterPi Vision - Press ESC to quit', display_frame)
-            
-            # Listen for the ESC key (ASCII 27) to cleanly exit
+            frame_resize = cv2.resize(Frame, (320, 240))
+            cv2.imshow('frame', frame_resize)
             key = cv2.waitKey(1)
             if key == 27:
-                print("ESC pressed. Exiting...")
                 break
-            # --- LIVE CAMERA FEED END ---
-            
         else:
             time.sleep(0.01)
-            
-    # Clean up the video window and camera when the loop ends
     cv2.destroyAllWindows()
-    cap.release()
-    Stop(signal.SIGINT, None) # Ensure motors stop when script exits
