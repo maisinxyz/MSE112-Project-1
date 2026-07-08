@@ -68,7 +68,7 @@ def servo_init():
     # TODO 1. set the PWM of the Servos appropriately to position arm for line-tracking, use Board.setPWMServoPulse() 
     Board.setPWMServoPulse(1, 2000, 500)  
     Board.setPWMServoPulse(2, 1000, 500) 
-    Board.setPWMServoPulse(3, 300, 500)  
+    Board.setPWMServoPulse(3, 800, 500)  #300 -> 800
     Board.setPWMServoPulse(4, 2000, 500)  
     Board.setPWMServoPulse(5, 2000, 500) 
     time.sleep(0.5)                      
@@ -203,7 +203,7 @@ def move():
 
                 # TODO 2. Given the base_speed from pid controller, Set motor speeds for motor 1, 2, 3 and 4, use  Board.setMotor()
                 # Base forward speed
-                forward_speed = 40 
+                forward_speed = 25 #40 -> 25
 
                 Board.setMotor(1, int(forward_speed -  base_speed))  
                 Board.setMotor(2, int(forward_speed + base_speed))  
@@ -223,7 +223,6 @@ def move():
 
 
                     # TODO 3. Obstacle avoidance routine
-
                     # move left
                     time.sleep(1)
                     Board.setMotor(1, -50)  
@@ -236,15 +235,15 @@ def move():
                     Board.setMotor(2, 50) 
                     Board.setMotor(3, -50)  
                     Board.setMotor(4, -50)  
-                    time.sleep(1.5)
+                    time.sleep(2)
                     # move right
                     Board.setMotor(1, 50)  
                     Board.setMotor(2, -50) 
                     Board.setMotor(3, -50)  
                     Board.setMotor(4, 50)  
-                    time.sleep(2)
+                    time.sleep(1.7)
                     print("complete, now turning off motors\n")
-                    chassis.set_velocity(0,0,0)  # Turn off all motors
+                    chassis.set_velocity(0,0,0)  # turn off all motors
 
                     obstacle = False
                     print("Obstacle Avoidance End\n")
@@ -374,7 +373,7 @@ if __name__ == '__main__':
     
     signal.signal(signal.SIGINT, Stop)
     cap = cv2.VideoCapture(-1)
-    __target_color = ('green',)
+    __target_color = ('blue',) #green -> blue
     while __isRunning:
         ret, img = cap.read()
         if ret:
