@@ -228,7 +228,7 @@ def move():
                     Board.setMotor(1, -50)  
                     Board.setMotor(2, 50) 
                     Board.setMotor(3, 50)  
-                    Board.setMotor(4, 50)  
+                    Board.setMotor(4, -50)  
                     time.sleep(1)
                     # move forward
                     Board.setMotor(1, 50)  
