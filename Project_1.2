@@ -38,7 +38,7 @@ img_centerx = 320
 # Variable for distance obstacle avoidance
 distance_data = []
 stopMotor = False
-Threshold = 13 # Set threshold for obstacle distance
+Threshold = 25 # Set threshold for obstacle distance
 
 
 # line tracking
@@ -231,10 +231,10 @@ def move():
                 tmp = 100 if tmp > 100 else tmp   
                 tmp = -100 if tmp < -100 else tmp
                 base_speed = Misc.map(tmp, -100, 100, -40, 40)  # Speed ​​mapping
-                Board.setMotor(1, int(30 - base_speed)) #Set motor speed
-                Board.setMotor(2, int(30 + base_speed))
-                Board.setMotor(3, int(-30 - base_speed))
-                Board.setMotor(4, int(-30 + base_speed))
+                Board.setMotor(1, int(35 - base_speed)) #Set motor speed
+                Board.setMotor(2, int(35 + base_speed))
+                Board.setMotor(3, int(-35 - base_speed))
+                Board.setMotor(4, int(-35 + base_speed))
                 
             else:
                 MotorStop()
