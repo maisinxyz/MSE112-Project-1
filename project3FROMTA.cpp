@@ -1,170 +1,472 @@
-import time
-import sys
-import threading
-import subprocess
-import os
-import signal
+// Tencent is pleased to support the open source community by making ncnn available.
+//
+// Copyright (C) 2020 THL A29 Limited, a Tencent company. All rights reserved.
+//
+// Licensed under the BSD 3-Clause License (the "License"); you may not use this file except
+// in compliance with the License. You may obtain a copy of the License at
+//
+// https://opensource.org/licenses/BSD-3-Clause
+//
+// Unless required by applicable law or agreed to in writing, software distributed
+// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
 
-sys.path.insert(0,os.path.join(os.path.expanduser('~' + os.environ.get('SUDO_USER', '')), 'mse112-ws-student', 'MasterPi'))
-import yaml_handle
-from ArmIK.Transform import *
-from ArmIK.ArmMoveIK import *
-import HiwonderSDK.Board as Board
-import HiwonderSDK.mecanum as mecanum
+// Copyright (C) 2020-2021, Megvii Inc. All rights reserved.
 
-chassis = mecanum.MecanumChassis()
-start = True
-pick_up = True
-place_down_left = False
-place_down_right = False
-search_left = False
-search_right = False
-stop_threads = False
-object_left = "none"
-object_right = "none"
-detected_object = "none"
+// modified 12-19-2021 Q-engineering
 
-ik = IK('arm')
-AK = ArmIK()
+#include "layer.h"
+#include "net.h"
 
-def stop(signum, frame):
-    global stop_threads, start
-    start = False
-    stop_threads = True
-    print('Stopping...')
+#include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <stdio.h>
+#include <vector>
+#include <iostream>
+#include <fstream>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <string>
 
-def run_cpp_program():
-    subprocess.run(["bash", "run_yolo.sh"])
+// YoloX Nano  | size=416 | model=yolox_N.* | 7.00 FPS | 25.8 mAP
+// YoloX Tiny  | size=416 | model=yolox_T.* | 2.83 FPS | 32.8 mAP
+// YoloX Small | size=640 | model=yolox_S.* | 0.87 FPS | 40.5 mAP
 
-# Initial position
-def init_detect_left():
-    global search_left
+ncnn::Net yolox;
+int target_size = 416;
+const float prob_threshold = 0.30f;
+const float nms_threshold = 0.45f;
+const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
 
-    Board.setPWMServoPulse(5, 1500, 300)
-    time.sleep(1)
-    Board.setPWMServoPulse(3, 500, 500)
-    time.sleep(1)
-    Board.setPWMServoPulse(4, 2300, 500)
-    time.sleep(1)
-    Board.setPWMServoPulse(6, 2500, 500)
+const char *class_names[] = {
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush"};
 
-    search_left = True
-
-def init_detect_right():
-    global search_right
-
-    Board.setPWMServoPulse(5, 1500, 300)
-    time.sleep(1)
-    Board.setPWMServoPulse(3, 500, 500)
-    time.sleep(0.5)
-    Board.setPWMServoPulse(4, 2300, 500)
-    time.sleep(0.5)
-    Board.setPWMServoPulse(6, 500, 500)
-    time.sleep(3)
-
-    search_right = True
-
-def init_move():
-    Board.setPWMServoPulse(1, 2500, 300)
-    time.sleep(1)
-    Board.setPWMServoPulse(3, 900, 500)
-    time.sleep(1)
-    Board.setPWMServoPulse(4, 2200, 500)
-    time.sleep(1)
-    Board.setPWMServoPulse(5, 1950, 500)
-    time.sleep(1)
-    Board.setPWMServoPulse(6, 1500, 500)
-
-def move():
-    global pick_up, place_down_left, place_down_right, detected_object
-    global search_left, search_right, start, stop_threads, object_left, object_right
-
-    coordinate = {
-        # TODO set coordinates appropriately depending on placement of object
-        'place_left': (18, 0, 0),
-        'place_right': (-18, 0, 0),
-        'pick': (0, ik.l2 + ik.l4, ik.l1 - ik.l3)
+// YOLOX use the same focus in yolov5
+class YoloV5Focus : public ncnn::Layer
+{
+public:
+    YoloV5Focus()
+    {
+        one_blob_only = true;
     }
 
-    init_move()
+    virtual int forward(const ncnn::Mat &bottom_blob, ncnn::Mat &top_blob, const ncnn::Option &opt) const
+    {
+        int w = bottom_blob.w;
+        int h = bottom_blob.h;
+        int channels = bottom_blob.c;
 
-    while not stop_threads:
-        while True:
-            if pick_up:
-                print("IN Pick-Up\n")
-                Board.setPWMServoPulse(1, 2000, 500)  # Open claws
-                time.sleep(1)
+        int outw = w / 2;
+        int outh = h / 2;
+        int outc = channels * 4;
 
-                # TODO set coordinates appropriately depending on placement of object
-                AK.setPitchRangeMoving(coordinate['pick'], 90, -90, 90)
-                time.sleep(3)
-                Board.setPWMServoPulse(1, 1000, 500)  # Close paw
-                time.sleep(0.5)
-                pick_up = False  # turn off pick_up flag
-                search_left = True
-                init_detect_left()
+        top_blob.create(outw, outh, outc, 4u, 1, opt.blob_allocator);
+        if (top_blob.empty())
+            return -100;
 
-            if search_left:
-                object_left = detected_object
-                print("Object_left: \n",object_left)
-                print("In Search Left\n")
-                if place_down_left:
-                    print("IN PLACE DOWN LEFT\n")
+#pragma omp parallel for num_threads(opt.num_threads)
+        for (int p = 0; p < outc; p++)
+        {
+            const float *ptr = bottom_blob.channel(p % channels).row((p / channels) % 2) + ((p / channels) / 2);
+            float *outptr = top_blob.channel(p);
 
-                    # TODO Implement placing left mechanism, Hint see if "pick_up"
+            for (int i = 0; i < outh; i++)
+            {
+                for (int j = 0; j < outw; j++)
+                {
+                    *outptr = *ptr;
 
-                else:
-                    print("now going Right\n")
-                    init_detect_right()
+                    outptr += 1;
+                    ptr += 2;
+                }
 
+                ptr += w;
+            }
+        }
 
-            if search_right:
-                object_right = detected_object
-                print("Object_right: \n",object_right)
-                print("In Search Right\n")
-                if place_down_right:
-                    print("IN PLACE DOWN RIGHT\n")
+        return 0;
+    }
+};
 
-                    # TODO Implement placing right mechanism, , Hint see if "pick_up"
+DEFINE_LAYER_CREATOR(YoloV5Focus)
 
-                else:
-                    print("now going Left\n")
-                    init_detect_left()
+struct Object
+{
+    cv::Rect_<float> rect;
+    int label;
+    float prob;
+};
 
+struct GridAndStride
+{
+    int grid0;
+    int grid1;
+    int stride;
+};
 
-def read_pipe():
-    global detected_object, stop_threads
-    while not stop_threads:
-        with open(pipe_path, 'r') as pipe:
-            detected_object = pipe.readline().strip()
+static inline float intersection_area(const Object &a, const Object &b)
+{
+    cv::Rect_<float> inter = a.rect & b.rect;
+    return inter.area();
+}
 
-th = threading.Thread(target=move)
-th.setDaemon(True)
-th.start()
+static void qsort_descent_inplace(std::vector<Object> &faceobjects, int left, int right)
+{
+    int i = left;
+    int j = right;
+    float p = faceobjects[(left + right) / 2].prob;
 
-cpp_thread = threading.Thread(target=run_cpp_program)
-cpp_thread.start()
+    while (i <= j)
+    {
+        while (faceobjects[i].prob > p)
+            i++;
 
-pipe_path = "/tmp/yolox_pipe"
-if not os.path.exists(pipe_path):
-    os.mkfifo(pipe_path)
+        while (faceobjects[j].prob < p)
+            j--;
 
-pipe_thread = threading.Thread(target=read_pipe)
-pipe_thread.setDaemon(True)
-pipe_thread.start()
+        if (i <= j)
+        {
+            // swap
+            std::swap(faceobjects[i], faceobjects[j]);
 
-def main():
-    global start, place_down_left, place_down_right, stop_threads, object_left, object_right, detected_object
+            i++;
+            j--;
+        }
+    }
 
-    # TODO explain working of this function
-    target_object = "dog"
-    while not stop_threads:
-        if object_right == target_object:
-            place_down_right = True
-        elif object_left == target_object:
-            place_down_left = True
+#pragma omp parallel sections
+    {
+#pragma omp section
+        {
+            if (left < j)
+                qsort_descent_inplace(faceobjects, left, j);
+        }
+#pragma omp section
+        {
+            if (i < right)
+                qsort_descent_inplace(faceobjects, i, right);
+        }
+    }
+}
 
-signal.signal(signal.SIGINT, stop)
+static void qsort_descent_inplace(std::vector<Object> &objects)
+{
+    if (objects.empty())
+        return;
 
-if __name__ == '__main__':
-    main()
+    qsort_descent_inplace(objects, 0, objects.size() - 1);
+}
+
+static void nms_sorted_bboxes(const std::vector<Object> &faceobjects, std::vector<int> &picked, float nms_threshold)
+{
+    picked.clear();
+
+    const int n = faceobjects.size();
+
+    std::vector<float> areas(n);
+    for (int i = 0; i < n; i++)
+    {
+        areas[i] = faceobjects[i].rect.area();
+    }
+
+    for (int i = 0; i < n; i++)
+    {
+        const Object &a = faceobjects[i];
+
+        int keep = 1;
+        for (int j = 0; j < (int)picked.size(); j++)
+        {
+            const Object &b = faceobjects[picked[j]];
+
+            // intersection over union
+            float inter_area = intersection_area(a, b);
+            float union_area = areas[i] + areas[picked[j]] - inter_area;
+            // float IoU = inter_area / union_area
+            if (inter_area / union_area > nms_threshold)
+                keep = 0;
+        }
+
+        if (keep)
+            picked.push_back(i);
+    }
+}
+
+static void generate_grids_and_stride(const int target_size, std::vector<int> &strides, std::vector<GridAndStride> &grid_strides)
+{
+    for (int i = 0; i < (int)strides.size(); i++)
+    {
+        int stride = strides[i];
+        int num_grid = target_size / stride;
+        for (int g1 = 0; g1 < num_grid; g1++)
+        {
+            for (int g0 = 0; g0 < num_grid; g0++)
+            {
+                GridAndStride gs;
+                gs.grid0 = g0;
+                gs.grid1 = g1;
+                gs.stride = stride;
+                grid_strides.push_back(gs);
+            }
+        }
+    }
+}
+
+static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, const ncnn::Mat &feat_blob, float prob_threshold, std::vector<Object> &objects)
+{
+    const int num_class = feat_blob.w - 5;
+    const int num_anchors = grid_strides.size();
+
+    const float *feat_ptr = feat_blob.channel(0);
+    for (int anchor_idx = 0; anchor_idx < num_anchors; anchor_idx++)
+    {
+        const int grid0 = grid_strides[anchor_idx].grid0;
+        const int grid1 = grid_strides[anchor_idx].grid1;
+        const int stride = grid_strides[anchor_idx].stride;
+
+        float x_center = (feat_ptr[0] + grid0) * stride;
+        float y_center = (feat_ptr[1] + grid1) * stride;
+        float w = exp(feat_ptr[2]) * stride;
+        float h = exp(feat_ptr[3]) * stride;
+        float x0 = x_center - w * 0.5f;
+        float y0 = y_center - h * 0.5f;
+
+        float box_objectness = feat_ptr[4];
+        for (int class_idx = 0; class_idx < num_class; class_idx++)
+        {
+            float box_cls_score = feat_ptr[5 + class_idx];
+            float box_prob = box_objectness * box_cls_score;
+            if (box_prob > prob_threshold)
+            {
+                Object obj;
+                obj.rect.x = x0;
+                obj.rect.y = y0;
+                obj.rect.width = w;
+                obj.rect.height = h;
+                obj.label = class_idx;
+                obj.prob = box_prob;
+
+                objects.push_back(obj);
+            }
+        }
+        feat_ptr += feat_blob.w;
+    }
+}
+
+static int detect_yolox(const cv::Mat &bgr, std::vector<Object> &objects)
+{
+    int img_w = bgr.cols;
+    int img_h = bgr.rows;
+
+    int w = img_w;
+    int h = img_h;
+    float scale = 1.f;
+    if (w > h)
+    {
+        scale = (float)target_size / w;
+        w = target_size;
+        h = h * scale;
+    }
+    else
+    {
+        scale = (float)target_size / h;
+        h = target_size;
+        w = w * scale;
+    }
+
+    ncnn::Mat in = ncnn::Mat::from_pixels_resize(bgr.data, ncnn::Mat::PIXEL_BGR, img_w, img_h, w, h);
+
+    int wpad = target_size - w;
+    int hpad = target_size - h;
+    ncnn::Mat in_pad;
+    ncnn::copy_make_border(in, in_pad, 0, hpad, 0, wpad, ncnn::BORDER_CONSTANT, 114.f);
+
+    ncnn::Extractor ex = yolox.create_extractor();
+    ex.input("images", in_pad);
+
+    std::vector<Object> proposals;
+
+    {
+        ncnn::Mat out;
+        ex.extract("output", out);
+
+        static const int stride_arr[] = {8, 16, 32};
+        std::vector<int> strides(stride_arr, stride_arr + sizeof(stride_arr) / sizeof(stride_arr[0]));
+        std::vector<GridAndStride> grid_strides;
+        generate_grids_and_stride(target_size, strides, grid_strides);
+        generate_yolox_proposals(grid_strides, out, prob_threshold, proposals);
+    }
+
+    qsort_descent_inplace(proposals);
+
+    std::vector<int> picked;
+    nms_sorted_bboxes(proposals, picked, nms_threshold);
+
+    int count = picked.size();
+    objects.resize(count);
+
+    for (int i = 0; i < count; i++)
+    {
+        objects[i] = proposals[picked[i]];
+
+        float x0 = (objects[i].rect.x) / scale;
+        float y0 = (objects[i].rect.y) / scale;
+        float x1 = (objects[i].rect.x + objects[i].rect.width) / scale;
+        float y1 = (objects[i].rect.y + objects[i].rect.height) / scale;
+
+        x0 = std::max(std::min(x0, (float)(img_w - 1)), 0.f);
+        y0 = std::max(std::min(y0, (float)(img_h - 1)), 0.f);
+        x1 = std::max(std::min(x1, (float)(img_w - 1)), 0.f);
+        y1 = std::max(std::min(y1, (float)(img_h - 1)), 0.f);
+
+        objects[i].rect.x = x0;
+        objects[i].rect.y = y0;
+        objects[i].rect.width = x1 - x0;
+        objects[i].rect.height = y1 - y0;
+    }
+    return 0;
+}
+
+static void draw_objects(cv::Mat &bgr, const std::vector<Object> &objects)
+{
+    for (size_t i = 0; i < objects.size(); i++)
+    {
+        const Object &obj = objects[i];
+
+        cv::rectangle(bgr, obj.rect, cv::Scalar(255, 0, 0));
+
+        char text[256];
+        sprintf(text, "%s %.1f%%", class_names[obj.label], obj.prob * 100);
+
+        int baseLine = 0;
+        cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+
+        int x = obj.rect.x;
+        int y = obj.rect.y - label_size.height - baseLine;
+        if (y < 0)
+            y = 0;
+        if (x + label_size.width > bgr.cols)
+            x = bgr.cols - label_size.width;
+
+        cv::rectangle(bgr, cv::Rect(cv::Point(x, y), cv::Size(label_size.width, label_size.height + baseLine)),
+                      cv::Scalar(255, 255, 255), -1);
+
+        cv::putText(bgr, text, cv::Point(x, y + label_size.height),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0));
+    }
+}
+
+std::string gstreamer_pipeline(int capture_width, int capture_height, int framerate, int display_width, int display_height)
+{
+    return "v4l2src device=/dev/video0 ! "
+           "videoconvert ! videoscale ! "
+           "video/x-raw, "
+           "width=(int)" +
+           std::to_string(display_width) + ", "
+                                           "height=(int)" +
+           std::to_string(display_height) + " ! appsink";
+}
+
+int main(int argc, char **argv)
+{
+    // Pipeline parameters
+    int capture_width = 320;
+    int capture_height = 240;
+    int framerate = 15;
+    int display_width = 320;
+    int display_height = 240;
+    cv::Mat m;
+
+    std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, display_width, display_height);
+    std::cout << "Using pipeline: \n\t" << pipeline << "\n\n\n";
+
+    cv::VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
+    if (!cap.isOpened())
+    {
+        std::cout << "Failed to open camera." << std::endl;
+        return (-1);
+    }
+
+    yolox.register_custom_layer("YoloV5Focus", YoloV5Focus_layer_creator);
+
+    // Load YOLOX Nano model
+    // TODO
+    yolox.load_param("yoloxT.param");
+    yolox.load_model("yoloxT.bin");
+
+    // Create named pipe (FIFO)
+    const char *pipe_path = "/tmp/yolox_pipe";
+    mkfifo(pipe_path, 0666);
+
+    std::cout << "Hit ESC to exit" << "\n";
+    while (true)
+    {
+        if (!cap.read(m))
+        {
+            std::cout << "Capture read error" << std::endl;
+            break;
+        }
+
+        std::vector<Object> objects;
+        detect_yolox(m, objects);
+        draw_objects(m, objects);
+
+        bool cat_detected = false;
+        bool dog_detected = false;
+
+        for (size_t i = 0; i < objects.size(); i++)
+        {
+            const Object &obj = objects[i];
+            if (obj.prob > 0.50)
+            {
+                if (class_names[obj.label] == "cat")
+                {
+                    cat_detected = true;
+                }
+                else if (class_names[obj.label] == "dog")
+                {
+                    dog_detected = true;
+                }
+            }
+        }
+
+        int pipe_fd = open(pipe_path, O_WRONLY);
+        if (pipe_fd != -1)
+        {
+            if (cat_detected)
+            {
+                write(pipe_fd, "cat\n", 4);
+            }
+            else if (dog_detected)
+            {
+                write(pipe_fd, "dog\n", 4);
+            }
+            else
+            {
+                write(pipe_fd, "none\n", 5);
+            }
+            close(pipe_fd);
+        }
+
+        cv::imshow("YoloX", m);
+        char esc = cv::waitKey(5);
+        if (esc == 27)
+            break;
+    }
+
+    cap.release();
+    cv::destroyAllWindows();
+    unlink(pipe_path); // Remove the named pipe
+    return 0;
+}
