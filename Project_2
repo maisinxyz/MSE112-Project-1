@@ -159,7 +159,7 @@ def move():
         'circle':   (15, 9, 2),
         'triangle': (-15, 9,  2),
         'square':  (-15, 0, 2),
-        'pick': (3.5, 18, -1)
+        'pick': (3.5, 18, -1) # changed 0 -> 3.5 for moving block test
     }
     
     
@@ -288,7 +288,7 @@ def run(img):
     # TODO 2, using cv2.findContours(), cv2.cvtColor(), cv2.GaussianBlur() find the contours
     grayscale = cv2.cvtColor(frame_resize, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(grayscale, (5, 5), 0)
-    ret, binary = cv2.threshold(blurred, 170, 255, cv2.THRESH_BINARY) #CHANGE 150 TO VARY HOW WELL OUTLINE IS DRAWN (170)
+    ret, binary = cv2.threshold(blurred, 170, 255, cv2.THRESH_BINARY) # Parameter 2 (170) is responsible for determinng how sensitively the black shape is drawn around shapes.
     contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnt_large, max_area = getAreaMaxContour(contours)
     cnt_large, area = getAreaMaxContour(contours)
@@ -308,11 +308,11 @@ def run(img):
 
             # TODO 3, using the length of the variable approx, obtained from cv2.approxPloyDP, 
             #assign variable shape as either; shape ="triangle", shape="square" or shape="circle"
-            if len(approx) == 3:
+            if len(approx) == 3: # 3 vertices
                 shape = "triangle"
-            elif len(approx) == 4:
+            elif len(approx) == 4: # 4 vertices
                 shape = "square"
-            elif len(approx) > 4:
+            elif len(approx) > 4: # anything else is a circle
                 shape = "circle"
             start_pick_up = True
 
