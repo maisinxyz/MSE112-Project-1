@@ -187,12 +187,12 @@ def main():
     global start, place_down_left, place_down_right, stop_threads, object_left, object_right, detected_object
 
     # TODO explain working of this function
-    target_object = "dog" # drops on opposite animal
+    target_object = "cat" # change animal
     while not stop_threads:
         if object_right == target_object:
-            place_down_right = True
-        elif object_left == target_object:
             place_down_left = True
+        elif object_left == target_object:
+            place_down_right = True
 
 signal.signal(signal.SIGINT, stop)
 
