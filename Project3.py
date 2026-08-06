@@ -82,9 +82,9 @@ def move():
 
     coordinate = {
         # TODO set coordinates appropriately depending on placement of object
-        'place_left': (18, 12, 0),
-        'place_right': (-18, 12, 0),
-        'pick': (0, 12, 6)
+        'place_left': (-18, 12, 0),
+        'place_right': (18, 12, 0),
+        'pick': (0, 12, 6) # change this for picking up
     }
 
     init_move()
@@ -97,17 +97,11 @@ def move():
                 time.sleep(2)
 
                 # TODO set coordinates appropriately depending on placement of object
-                AK.setPitchRangeMoving(coordinate['pick'], 90, -90, 90)
-                time.sleep(1)
-                # Board.setPWMServoPulse(3, 500, 500) # Waist/shoulder tilt
-                # Board.setPWMServoPulse(4, 1800, 500) # Arm pitch
-                # Board.setPWMServoPulse(5, 2300, 500) # Elbow
-                # Board.setPWMServoPulse(6, 1500, 500) # Wrist rotation
-                # time.sleep(2)
-                
+                AK.setPitchRangeMoving(coordinate['pick'], 90, -90, 90) # pick up object from 'pick' location
+                time.sleep(1)              
                 Board.setPWMServoPulse(1, 1000, 500)  # Close paw
                 time.sleep(0.5)
-                pick_up = False  # turn off pick_up flag
+                pick_up = False  # reset sentinel flag to loop 
                 search_left = True
                 init_detect_left()
 
@@ -119,21 +113,17 @@ def move():
                     print("IN PLACE DOWN LEFT\n")
 
                     # TODO Implement placing left mechanism, Hint see if "pick_up"
-                    
-                    # Move arm to the left drop-off coordinate
-                    AK.setPitchRangeMoving(coordinate['place_left'], 90, -90, 90)
+                    AK.setPitchRangeMoving(coordinate['place_left'], 90, -90, 90) # moving to left side
                     time.sleep(3)
-                    
-                    # Open claws to drop the object
-                    Board.setPWMServoPulse(1, 2000, 500)
-                    time.sleep(1)
-                    
-                    # End the sequence
+                    Board.setPWMServoPulse(1, 2000, 500) # open claw
+                    time.sleep(1) 
+
+                    # ending place squence (resetting sentinel flags)
                     place_down_left = False
                     stop_threads = True
                     break
                 else:
-                    print("now going Right\n")
+                    print("now going Right\n") # If place_down_left is not ture (not the target object)
                     init_detect_right()
 
 
@@ -145,15 +135,11 @@ def move():
                     print("IN PLACE DOWN RIGHT\n")
 
                     # TODO Implement placing right mechanism, , Hint see if "pick_up"
-                    # Move arm to the right drop-off coordinate
                     AK.setPitchRangeMoving(coordinate['place_right'], 90, -90, 90)
                     time.sleep(3)
-                    
-                    # Open claws to drop the object
-                    Board.setPWMServoPulse(1, 2000, 500)
+                    Board.setPWMServoPulse(1, 2000, 500) #Same code as the place left code but iwth right coords
                     time.sleep(1)
                     
-                    # End the sequence
                     place_down_right = False
                     stop_threads = True
                     break
@@ -187,12 +173,14 @@ def main():
     global start, place_down_left, place_down_right, stop_threads, object_left, object_right, detected_object
 
     # TODO explain working of this function
-    target_object = "cat" # change animal
+    # Explanation: 
+    # This function allows the uesr to specify the target animal (dog or cat) and runs a logic loop that determines if the object that the camera is pointing as is the object. This is done by calling the functions defined above, which it uses to find equivalency in variable. This function outputs 2 sentinel flags (place_down_left and place_down_right) which is caught by init_move(), specifically on lines 112 adn 134 to run the code required to place the object on that side. 
+    target_object = "cat" # change animal for target
     while not stop_threads:
         if object_right == target_object:
-            place_down_left = True
-        elif object_left == target_object:
             place_down_right = True
+        elif object_left == target_object:
+            place_down_left = True
 
 signal.signal(signal.SIGINT, stop)
 
