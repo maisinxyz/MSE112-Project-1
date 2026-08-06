@@ -66,8 +66,6 @@ def init_detect_right():
     search_right = True
 
 def init_move():
-    Board.setPWMServoPulse(1, 2500, 300)
-    time.sleep(1)
     Board.setPWMServoPulse(3, 800, 500)
     time.sleep(1)
     Board.setPWMServoPulse(4, 2400, 500)
@@ -173,8 +171,7 @@ def main():
     global start, place_down_left, place_down_right, stop_threads, object_left, object_right, detected_object
 
     # TODO explain working of this function
-    # Explanation: 
-    # This function allows the uesr to specify the target animal (dog or cat) and runs a logic loop that determines if the object that the camera is pointing as is the object. This is done by calling the functions defined above, which it uses to find equivalency in variable. This function outputs 2 sentinel flags (place_down_left and place_down_right) which is caught by init_move(), specifically on lines 112 adn 134 to run the code required to place the object on that side. 
+    # Explanation is in TODO 4 under implementation steps in the Project 3 report.
     target_object = "cat" # change animal for target
     while not stop_threads:
         if object_right == target_object:
