@@ -400,7 +400,7 @@ int main(int argc, char **argv)
 
     yolox.register_custom_layer("YoloV5Focus", YoloV5Focus_layer_creator);
 
-    // Load YOLOX Nano model
+    // Load YOLOX Tiny model
     // TODO
     yolox.load_param("yoloxT.param");
     yolox.load_model("yoloxT.bin");
